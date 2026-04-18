@@ -1,2 +1,2 @@
 # Keep LFileUtil public API
--keep class com.dawn.library.LFileUtil { public static *; }
+-keep class com.dawn.file.LFileUtil { public static *; }

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.dawn.library">
+    package="com.dawn.file">
 
     <!--
         本库不主动声明权限，由使用方根据实际场景按需声明。
