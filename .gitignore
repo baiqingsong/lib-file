@@ -1,0 +1,33 @@
+# Gradle
+*.iml
+.gradle/
+build/
+/local.properties
+/app/build
+/library/build
+/library/libs/
+gradle-app.setting
+
+# Android
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+*.log
+
+# Local configuration
+local.properties
+*.jks
+*.keystore
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
