@@ -12,8 +12,13 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.security.MessageDigest;
 import java.util.Locale;
+import android.content.Context;
+
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.Enumeration;
 import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import java.util.zip.ZipFile;
 
 /**
  * 文件工具类
@@ -607,23 +612,20 @@ public class LFileUtil {
      */
     public static boolean unzip(String zipFilePath, String destDirPath) {
         if (isEmpty(zipFilePath) || isEmpty(destDirPath)) return false;
-        File zipFile = new File(zipFilePath);
-        if (!zipFile.exists() || !zipFile.isFile()) return false;
+        File zipFileObj = new File(zipFilePath);
+        if (!zipFileObj.exists() || !zipFileObj.isFile()) return false;
         File destDir = new File(destDirPath);
         if (!destDir.exists()) {
             destDir.mkdirs();
         }
-        ZipInputStream zis = null;
-        FileOutputStream fos = null;
-        try {
-            zis = new ZipInputStream(new FileInputStream(zipFile));
-            ZipEntry entry;
+        try (ZipFile zf = new ZipFile(zipFileObj)) {
+            String canonicalDest = destDir.getCanonicalPath();
+            Enumeration<? extends ZipEntry> entries = zf.entries();
             byte[] buffer = new byte[4096];
-            while ((entry = zis.getNextEntry()) != null) {
-                String entryName = entry.getName();
-                File outFile = new File(destDir, entryName);
-                // 防止 Zip Slip 漏洞：校验解压路径不超出目标目录
-                String canonicalDest = destDir.getCanonicalPath();
+            while (entries.hasMoreElements()) {
+                ZipEntry entry = entries.nextElement();
+                File outFile = new File(destDir, entry.getName());
+                // 防止 Zip Slip 漏洞
                 String canonicalOut = outFile.getCanonicalPath();
                 if (!canonicalOut.startsWith(canonicalDest + File.separator)
                         && !canonicalOut.equals(canonicalDest)) {
@@ -636,22 +638,137 @@ public class LFileUtil {
                     if (parent != null && !parent.exists()) {
                         parent.mkdirs();
                     }
-                    fos = new FileOutputStream(outFile);
-                    int len;
-                    while ((len = zis.read(buffer)) != -1) {
-                        fos.write(buffer, 0, len);
+                    try (InputStream is = zf.getInputStream(entry);
+                         FileOutputStream fos = new FileOutputStream(outFile)) {
+                        int len;
+                        while ((len = is.read(buffer)) != -1) {
+                            fos.write(buffer, 0, len);
+                        }
                     }
-                    closeIO(fos);
-                    fos = null;
                 }
-                zis.closeEntry();
             }
             return true;
         } catch (IOException e) {
             e.printStackTrace();
             return false;
-        } finally {
-            closeIO(fos, zis);
         }
+    }
+
+    // ==================== 文件清理类 ====================
+
+    /**
+     * 清理目录中超过指定天数的旧文件
+     *
+     * @param folderPath 目录路径
+     * @param daysToKeep 保留天数，超过此天数的文件将被删除
+     */
+    public static void cleanOldFiles(String folderPath, int daysToKeep) {
+        File folder = new File(folderPath);
+        if (!folder.exists() || !folder.isDirectory()) return;
+        long cutoff = System.currentTimeMillis() - daysToKeep * 24L * 60 * 60 * 1000;
+        File[] files = folder.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                try {
+                    if (file.lastModified() < cutoff) {
+                        //noinspection ResultOfMethodCallIgnored
+                        file.delete();
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    /**
+     * 删除指定目录下以特定前缀开头的文件
+     *
+     * @param dirPath        目录路径
+     * @param fileNamePrefix 文件名前缀
+     */
+    public static void deleteTakePhotoImages(String dirPath, String fileNamePrefix) {
+        File dir = new File(dirPath);
+        if (!dir.exists() || !dir.isDirectory()) return;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File file : files) {
+                if (file.getName().startsWith(fileNamePrefix)) {
+                    //noinspection ResultOfMethodCallIgnored
+                    file.delete();
+                }
+            }
+        }
+    }
+
+    // ==================== Assets 类（需要 Android Context）====================
+
+    /**
+     * 将 assets 中的文件复制到指定输出文件
+     *
+     * @param context       Android Context
+     * @param assetFileName assets 中的文件名
+     * @param outFile       目标输出文件
+     */
+    public static void copyAssetToSDCard(Context context, String assetFileName, File outFile) {
+        InputStream in = null;
+        FileOutputStream out = null;
+        try {
+            in = context.getAssets().open(assetFileName);
+            out = new FileOutputStream(outFile);
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+            out.flush();
+        } catch (IOException e) {
+            e.printStackTrace();
+        } finally {
+            closeIO(in, out);
+        }
+    }
+
+    /**
+     * 读取 assets 中的文本文件内容并返回字符串
+     *
+     * @param context  Android Context
+     * @param fileName assets 中的文件名
+     * @return 文件内容字符串，失败返回空字符串
+     */
+    public static String readAsset(Context context, String fileName) {
+        StringBuilder sb = new StringBuilder();
+        InputStream is = null;
+        InputStreamReader isr = null;
+        BufferedReader reader = null;
+        try {
+            is = context.getAssets().open(fileName);
+            isr = new InputStreamReader(is, "UTF-8");
+            reader = new BufferedReader(isr);
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            closeIO(reader, isr, is);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 获取应用外部存储目录路径，不可用时回退到内部存储
+     *
+     * @param context Android Context
+     * @return 存储目录路径
+     */
+    public static String getExternalFile(Context context) {
+        try {
+            File ext = context.getExternalFilesDir(null);
+            if (ext != null) return ext.getPath();
+        } catch (Exception ignore) {
+        }
+        return context.getFilesDir().getPath();
     }
 }
